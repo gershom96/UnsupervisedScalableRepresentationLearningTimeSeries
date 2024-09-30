@@ -111,9 +111,9 @@ class TimeSeriesDataset(Dataset):
     
 class CausalCNNEncoderTrainer:
     def __init__(self, compared_length=None, nb_random_samples=20, negative_penalty=1,
-                 batch_size=100, nb_steps=2000, lr=1e-4, early_stopping=None, 
-                 in_channels=18, out_channels=320, channels=40, depth=10, reduced_size=160, 
-                 cuda=True, gpu=0, kernel_size=3):
+                 batch_size=200, nb_steps=3000, lr=1e-4, early_stopping=None, 
+                 in_channels=18, out_channels=160, channels=40, depth=10, reduced_size=320, 
+                 cuda=True, gpu=1, kernel_size=3):
         
         self.architecture = 'CausalCNN'
         self.batch_size = batch_size
@@ -192,9 +192,20 @@ class CausalCNNEncoderTrainer:
                 loss = self.loss(batch, self.encoder, full_train_tensor, save_memory=save_memory)
                 loss.backward()
                 self.optimizer.step()
-                print(f'Epoch {epochs + 1}, Step {i + 1}: Loss = {loss:.4f}')
-                epoch_loss += loss.item()  # Accumulate loss for this epoch
+
+                step_loss_value = loss.item()
+                print(f'Epoch {epochs + 1}, Step {i + 1}: Loss = {step_loss_value:.8f}')
+                wandb.log({"step_loss": step_loss_value, "step": i + 1})
+
+                epoch_loss += step_loss_value  # Accumulate loss for this epoch
                 i += 1
+                    
+                if (i + 1) % 100 == 0:
+                    checkpoint_path = f"./models/encoder_checkpoint_epoch_{epochs+1}_step_{i+1}"
+                    self.save_encoder(checkpoint_path)
+                    print(f"Checkpoint saved at {checkpoint_path}")
+                    wandb.save(checkpoint_path)
+
                 if i >= self.nb_steps:
                     break
             epochs += 1
@@ -228,8 +239,12 @@ class CausalCNNEncoderTrainer:
                 loss = self.loss(batch, self.encoder, batch, save_memory=save_memory)
                 loss.backward()
                 self.optimizer.step()
-                print(f'Epoch {epochs + 1}, Step {i + 1}: Loss = {loss:.4f}')
-                epoch_loss += loss.item()  # Accumulate loss for this epoch
+
+                step_loss_value = loss.item()
+                print(f'Epoch {epochs + 1}, Step {i + 1}: Loss = {step_loss_value:.8f}')
+                wandb.log({"step_loss": step_loss_value, "step": i + 1})
+
+                epoch_loss += step_loss_value  # Accumulate loss for this epoch
                 i += 1
                 if i >= self.nb_steps:
                     break
@@ -244,7 +259,7 @@ class CausalCNNEncoderTrainer:
 
 def main():
 
-    h5_path = '/home/gershom/Documents/GAMMA/UnsupervisedScalableRepresentationLearningTimeSeries/Dataset/all_timeseries_by_terrain_train.h5'
+    h5_path = '../TimeSeriesData/all_timeseries_by_terrain_train.h5'
     
     mean = np.array([-9.7528e-03,  7.1942e-02, -9.8050e+00, -1.3312e-03, -4.1957e-04, -2.5726e-02, 
                      -1.9685e+00,  1.6953e+01, -4.1611e+00,  1.8878e+01, -1.0623e+00,  1.6011e+01, 
@@ -257,17 +272,17 @@ def main():
     transform = NormalizeTransform(mean=mean, std=std)
 
 
-    # dataset = TimeSeriesDataset(h5_path, transform=transform)
-    # sample_weights = dataset.compute_class_weights()
-
-    dataset = LazyTimeSeriesDataset(h5_path)
+    dataset = TimeSeriesDataset(h5_path, transform=transform)
     sample_weights = dataset.compute_class_weights()
+
+    # dataset = LazyTimeSeriesDataset(h5_path)
+    # sample_weights = dataset.compute_class_weights()
 
     sampler = WeightedRandomSampler(weights=sample_weights, num_samples=len(sample_weights), replacement=True)
 
     dataloader = DataLoader(
         dataset, 
-        batch_size=200, 
+        batch_size=100, 
         sampler=sampler, 
         num_workers=4,   
         pin_memory=True, 
@@ -276,8 +291,13 @@ def main():
     
     trainer = CausalCNNEncoderTrainer()
     
-    # trainer.fit_encoder(dataloader, dataset.data)
-    trainer.fit_encoder_1(dataloader)
-
+    trainer.fit_encoder(dataloader, dataset.data)
+    # trainer.fit_encoder_1(dataloader)
+    # Define the file path where you want to save the model
+    model_save_path = './models/causal_cnn_encoder'
+    
+    # Save the trained encoder
+    trainer.save_encoder(model_save_path)
+    print(f'Model saved to {model_save_path}_CausalCNN_encoder.pth')
 if __name__ == "__main__":
     main()
